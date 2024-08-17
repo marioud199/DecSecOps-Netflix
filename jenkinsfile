@@ -1,0 +1,95 @@
+pipeline {
+    agent any
+    tools {
+        jdk 'jdk17'
+        nodejs 'node16'
+    }
+    environment {
+        SCANNER_HOME = tool 'sonar-scanner'
+        API_KEY = credentials('api_key')
+    }
+    stages {
+        stage('clean workspace') {
+            steps {
+                cleanWs()
+            }
+        }
+        stage('Checkout from Git') {
+            steps {
+                git branch: 'main', credentialsId: 'git-cred' , url:  'https://github.com/marioud199/DecSecOps-Netflix.git'
+            }
+        }
+        stage('SonarQube scan') {
+            steps {
+                 withSonarQubeEnv('sonar') {
+                    sh """
+                    ${SCANNER_HOME}/bin/sonar-scanner \
+                    -Dsonar.projectKey=Netflix  \
+                    -Dsonar.projectName=Netflix  \
+                    -Dsonar.java.binaries=. 
+                    """
+                }
+            }
+         }
+        stage('Quality Gate') {
+            steps {
+                waitForQualityGate abortPipeline: false, credentialsId: 'sonar-id'
+            }
+        }
+      stage('insall dependencies') {
+          steps {
+              sh 'npm install'
+          }
+      }
+      stage('OWASP scan') {
+          steps {
+            dependencyCheck additionalArguments: '--scan ./ --disableYarnAudit --disableNodeAudit',
+            odcInstallation: 'DP-Check',
+            dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
+          }
+          } 
+      stage('Trivy scan') {
+          steps {
+              sh 'trivy fs . > trivyfs.txt'
+          }
+      }
+        stage('Docker Build & Push') {
+            steps {
+                script {
+                    withDockerRegistry(credentialsId: 'docker-id', toolName: 'docker') {
+                        sh 'docker build --build-arg TMDB_V3_API_KEY=${API_KEY} -t netflix .'
+                        sh 'docker tag netflix marioud/netflix:latest'
+                        sh 'docker push marioud/netflix:latest'
+                    }
+                }
+            }
+        }
+        stage('Trivy image') {
+            steps {
+                sh 'trivy image marioud/netflix:latest > trivyimage.txt'
+            }
+            
+        }
+        stage('Deploy to container') {
+            steps {
+                sh 'docker run -d -p 8081:80 marioud/netflix:latest'
+            }
+        }
+     
+    }
+     post {
+        always {
+            emailext attachLog: true, 
+            subject: "'${currentBuild.result}'",
+            body: "project url: ${env.BUILD_URL}<br/>" +
+                  "project name: ${env.JOB_NAME}<br/>" +
+                  "build number: ${env.BUILD_NUMBER}<br/>" +
+                  "build status: ${currentBuild.result}<br/>",
+            recipientProviders: [[$class: 'DevelopersRecipientProvider']],
+            mimeType: 'text/html', 
+            to: 'mohamedmarioud2020@gmail.com',
+            from: 'mar@test.com',
+            attachmentsPattern: 'trivy-image-scan.html'
+        }
+    }}
+        
