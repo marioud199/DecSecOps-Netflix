@@ -1,4 +1,5 @@
 ![Alt Text](DevSecOps.png)
+![Alt Text](reda.png)
 
 # Netflix Clone - DevSecOps Project
 Overview
