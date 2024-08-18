@@ -1,3 +1,5 @@
+![Alt Text](relative/path/to/your/image.jpg)
+
 # Netflix Clone - DevSecOps Project
 Overview
 
